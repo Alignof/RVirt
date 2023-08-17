@@ -35,7 +35,7 @@ $(OUT)/rvirt-bare-metal.bin: $(OUT)/rvirt-bare-metal
 
 # Run rvirt inside QEMU.
 qemu: $(OUT)/rvirt-bare-metal
-	qemu-system-riscv64 -machine virt -nographic -m 2G -smp 1 $(GDBOPTS) \
+	qemu-system-riscv64 -machine virt -bios none -nographic -m 2G -smp 1 $(GDBOPTS) \
 	    -kernel $(OUT)/rvirt-bare-metal -initrd fedora-vmlinux \
 	    -append "console=ttyS0 ro root=/dev/vda" \
 	    -object rng-random,filename=/dev/urandom,id=rng1 \
