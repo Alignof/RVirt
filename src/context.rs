@@ -1,21 +1,20 @@
-use arrayvec::ArrayVec;
-use spin::Mutex;
 use crate::fdt::MachineMeta;
 use crate::memory_region::MemoryRegion;
 use crate::plic::PlicState;
-use crate::pmap::{PageTables, PageTableRoot};
+use crate::pmap::{PageTableRoot, PageTables};
 use crate::riscv::bits::*;
 use crate::riscv::csr;
 use crate::statics::SHARED_STATICS;
 use crate::trap::U64Bits;
 use crate::{pmap, print, riscv, virtio};
+use arrayvec::ArrayVec;
+use spin::Mutex;
 
 pub static CONTEXT: Mutex<Option<Context>> = Mutex::new(None);
 
 pub struct ControlRegisters {
     // sedeleg: u64, -- Hard-wired to zero
     // sideleg: u64, -- Hard-wired to zero
-
     pub sstatus: u64,
     pub sie: u64,
     pub sip: u64,
@@ -51,9 +50,7 @@ pub struct Uart {
 }
 
 pub enum HostClint {
-    Direct {
-        mtime: MemoryRegion,
-    },
+    Direct { mtime: MemoryRegion },
     Sbi,
 }
 
@@ -105,7 +102,6 @@ pub struct Context {
     pub irq_map: [IrqMapping; 512],
 }
 
-
 impl ControlRegisters {
     pub fn push_sie(&mut self) {
         self.sstatus.set(STATUS_SPIE, self.sstatus.get(STATUS_SIE));
@@ -122,7 +118,7 @@ impl Uart {
     const IRQ: u32 = 10;
 
     fn tx_interrupt(&self, current_time: u64) -> bool {
-        self.next_interrupt_time  <= current_time && self.interrupt_enable & 0x2 != 0
+        self.next_interrupt_time <= current_time && self.interrupt_enable & 0x2 != 0
     }
     fn rx_interrupt(&self) -> bool {
         self.input_bytes_ready >= 1 && self.interrupt_enable & 0x1 != 0
@@ -163,7 +159,7 @@ impl Uart {
     // bits for interrupt identification register
     const IIR_FIFOS_ENABLED: u8 = 0xC0;
     const IIR_INTERRUPT_NOT_PENDING: u8 = 0x01; // set to zero for interrupt pending
-    // note: bits 1-3 are an enumeration as follows, not a bitmask
+                                                // note: bits 1-3 are an enumeration as follows, not a bitmask
     const IIR_TX_INTERRUPT: u8 = 0x02; // transmit fifo has room for more data
     const IIR_RX_INTERRUPT: u8 = 0x04; // receive fifo contains data
 
@@ -192,7 +188,7 @@ impl Uart {
                     let ret = self.input_fifo[0];
                     self.input_bytes_ready -= 1;
                     for i in 0..(self.input_bytes_ready) {
-                        self.input_fifo[i] = self.input_fifo[i+1];
+                        self.input_fifo[i] = self.input_fifo[i + 1];
                     }
                     ret
                 } else {
@@ -210,9 +206,11 @@ impl Uart {
                 } else {
                     Uart::IIR_FIFOS_ENABLED | Uart::IIR_INTERRUPT_NOT_PENDING
                 }
-            },
+            }
             (true, Uart::LINE_CONTROL_REGISTER) => Uart::LCR_EIGHT_BIT_WORDS,
-            (false, Uart::LINE_CONTROL_REGISTER) => Uart::LCR_EIGHT_BIT_WORDS | Uart::LCR_DIVISOR_LATCH_ACCESS,
+            (false, Uart::LINE_CONTROL_REGISTER) => {
+                Uart::LCR_EIGHT_BIT_WORDS | Uart::LCR_DIVISOR_LATCH_ACCESS
+            }
             (_, Uart::LINE_STATUS_REGISTER) => {
                 self.fill_fifo();
 
@@ -252,11 +250,16 @@ impl Uart {
                 self.divisor_latch = (self.divisor_latch & 0x00ff) | ((value as u16) << 8);
             }
             (_, Uart::FIFO_CONTROL_REGISTER, _) => {}
-            (_, Uart::LINE_CONTROL_REGISTER, _) => self.dlab = (value & Uart::LCR_DIVISOR_LATCH_ACCESS) != 0,
-            (_, Uart::MODEM_CONTROL_REGISTER, _) if value & (Uart::MCR_LOOPBACK_ENABLE | Uart::MCR_RESERVED_BITS) == 0 => {}
+            (_, Uart::LINE_CONTROL_REGISTER, _) => {
+                self.dlab = (value & Uart::LCR_DIVISOR_LATCH_ACCESS) != 0
+            }
+            (_, Uart::MODEM_CONTROL_REGISTER, _)
+                if value & (Uart::MCR_LOOPBACK_ENABLE | Uart::MCR_RESERVED_BITS) == 0 => {}
             _ => {
-                println!("UART: Write unimplemented {:#x} -> {:#x} (dlab={})",
-                         value, addr, self.dlab);
+                println!(
+                    "UART: Write unimplemented {:#x} -> {:#x} (dlab={})",
+                    value, addr, self.dlab
+                );
                 loop {}
             }
         }
@@ -321,7 +324,7 @@ impl SavedRegisters {
     }
     pub fn set(&mut self, reg: u32, value: u64) {
         match reg {
-            0 => {},
+            0 => {}
             1 | 3..=31 => self.registers[reg as u64 * 8] = value,
             2 => riscv::set_sscratch(value),
             _ => unreachable!(),
@@ -334,7 +337,8 @@ impl Context {
         Some(match csr as u64 {
             csr::sstatus => {
                 let real = csrr!(sstatus);
-                self.csrs.sstatus = (self.csrs.sstatus & !SSTATUS_DYNAMIC_MASK) | (real & SSTATUS_DYNAMIC_MASK);
+                self.csrs.sstatus =
+                    (self.csrs.sstatus & !SSTATUS_DYNAMIC_MASK) | (real & SSTATUS_DYNAMIC_MASK);
                 self.csrs.sstatus
             }
             csr::satp => self.csrs.satp,
@@ -407,9 +411,7 @@ impl Context {
                 }
                 self.csrs.sip = (self.csrs.sip & !IP_SSIP) | (value & IP_SSIP)
             }
-            csr::sedeleg |
-            csr::sideleg |
-            csr::scounteren => {}
+            csr::sedeleg | csr::sideleg | csr::scounteren => {}
             c => {
                 println!("Write to unrecognized CSR: {:#x}", c);
                 return false;
@@ -432,13 +434,15 @@ impl Context {
     }
 }
 
-pub unsafe fn initialize(machine: &MachineMeta,
-                         guest_machine: &MachineMeta,
-                         shadow_page_tables: PageTables,
-                         guest_memory: MemoryRegion,
-                         guest_shift: u64,
-                         hartid: u64,
-                         guestid: Option<u64>) {
+pub unsafe fn initialize(
+    machine: &MachineMeta,
+    guest_machine: &MachineMeta,
+    shadow_page_tables: PageTables,
+    guest_memory: MemoryRegion,
+    guest_shift: u64,
+    hartid: u64,
+    guestid: Option<u64>,
+) {
     let mut irq_map = [IrqMapping::Ignored; 512];
     let mut virtio_devices = ArrayVec::new();
     for i in 0..4 {
@@ -456,14 +460,19 @@ pub unsafe fn initialize(machine: &MachineMeta,
             assert_eq!(irq_map[host_irq as usize], IrqMapping::Ignored);
             irq_map[host_irq as usize] = IrqMapping::Virtio {
                 device_index: i as u8,
-                guest_irq: guest_irq.unwrap() as u16
+                guest_irq: guest_irq.unwrap() as u16,
             };
         } else {
             virtio_devices.push(virtio::Device::Unmapped);
         }
     }
 
-    let plic_context = machine.harts.iter().find(|h| h.hartid == hartid).unwrap().plic_context;
+    let plic_context = machine
+        .harts
+        .iter()
+        .find(|h| h.hartid == hartid)
+        .unwrap()
+        .plic_context;
 
     let host_clint = match machine.clint_address {
         Some(address) => HostClint::Direct {
@@ -474,7 +483,7 @@ pub unsafe fn initialize(machine: &MachineMeta,
 
     let test_finisher = match (guestid, machine.test_finisher_address) {
         (None, Some(pa)) => Some(TestFinisher {
-            registers: MemoryRegion::with_base_address(pmap::pa2va(pa), 0, 8)
+            registers: MemoryRegion::with_base_address(pmap::pa2va(pa), 0, 8),
         }),
         _ => None,
     };
@@ -494,7 +503,7 @@ pub unsafe fn initialize(machine: &MachineMeta,
             mtimecmp: u64::max_value(),
         },
         saved_registers: SavedRegisters {
-            registers: MemoryRegion::with_base_address(SSTACK_BASE, 0, 32 * 8)
+            registers: MemoryRegion::with_base_address(SSTACK_BASE, 0, 32 * 8),
         },
         guest_memory,
         shadow_page_tables,
@@ -519,7 +528,10 @@ pub unsafe fn initialize(machine: &MachineMeta,
         host_clint,
         host_plic: HostPlic {
             claim_clear: MemoryRegion::with_base_address(
-                pmap::pa2va(machine.plic_address + 0x200004 + 0x1000 * plic_context), 0, 8),
+                pmap::pa2va(machine.plic_address + 0x200004 + 0x1000 * plic_context),
+                0,
+                8,
+            ),
         },
         consecutive_page_fault_count: 0,
         tlb_caches_invalid_ptes: false,

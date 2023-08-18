@@ -1,4 +1,3 @@
-
 use crate::constants::MAX_GUEST_HARTS;
 
 /// Number of contexts for the PLIC. Value is twice the max number of harts because each hart will
@@ -56,7 +55,7 @@ impl PlicState {
 
                         for j in 0..32 {
                             if self.pending[i] & (1 << j) != 0 {
-                                let interrupt = i*32 + j;
+                                let interrupt = i * 32 + j;
                                 if self.source_priority[interrupt] > max_priority {
                                     max_priority = self.source_priority[interrupt];
                                     self.claim_complete[hart] = interrupt as u32;
@@ -125,7 +124,7 @@ impl PlicState {
 
             for j in 0..32 {
                 if self.pending[i] & (1 << j) != 0 {
-                    if self.source_priority[i*32 + j] > threshold {
+                    if self.source_priority[i * 32 + j] > threshold {
                         return true;
                     }
                 }

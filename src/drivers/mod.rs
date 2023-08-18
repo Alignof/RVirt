@@ -1,8 +1,8 @@
 #![allow(unused)]
 
+use crate::memory_region::MemoryRegion;
 use arrayvec::ArrayVec;
 use byteorder::{ByteOrder, LittleEndian};
-use crate::memory_region::MemoryRegion;
 
 pub mod macb;
 
@@ -55,21 +55,39 @@ pub trait Driver: Sized {
     fn interrupt(device: &mut GuestDevice<Self>, guest_memory: &mut MemoryRegion) -> bool;
     fn doorbell(device: &mut GuestDevice<Self>, guest_memory: &mut MemoryRegion, queue: u32);
 
-    fn read_config_u8(device: &GuestDevice<Self>, guest_memory: &mut MemoryRegion, offset: u64) -> u8;
-    fn read_config_u32(device: &GuestDevice<Self>, guest_memory: &mut MemoryRegion, offset: u64) -> u32 {
+    fn read_config_u8(
+        device: &GuestDevice<Self>,
+        guest_memory: &mut MemoryRegion,
+        offset: u64,
+    ) -> u8;
+    fn read_config_u32(
+        device: &GuestDevice<Self>,
+        guest_memory: &mut MemoryRegion,
+        offset: u64,
+    ) -> u32 {
         u32::from_le_bytes([
             Self::read_config_u8(device, guest_memory, offset),
-            Self::read_config_u8(device, guest_memory, offset+1),
-            Self::read_config_u8(device, guest_memory, offset+2),
-            Self::read_config_u8(device, guest_memory, offset+3),
+            Self::read_config_u8(device, guest_memory, offset + 1),
+            Self::read_config_u8(device, guest_memory, offset + 2),
+            Self::read_config_u8(device, guest_memory, offset + 3),
         ])
     }
-    fn write_config_u8(device: &mut GuestDevice<Self>, guest_memory: &mut MemoryRegion, offset: u64, value: u8);
-    fn write_config_u32(device: &mut GuestDevice<Self>, guest_memory: &mut MemoryRegion, offset: u64, value: u32) {
+    fn write_config_u8(
+        device: &mut GuestDevice<Self>,
+        guest_memory: &mut MemoryRegion,
+        offset: u64,
+        value: u8,
+    );
+    fn write_config_u32(
+        device: &mut GuestDevice<Self>,
+        guest_memory: &mut MemoryRegion,
+        offset: u64,
+        value: u32,
+    ) {
         Self::write_config_u8(device, guest_memory, offset, value.to_le_bytes()[0]);
-        Self::write_config_u8(device, guest_memory, offset+1, value.to_le_bytes()[1]);
-        Self::write_config_u8(device, guest_memory, offset+2, value.to_le_bytes()[2]);
-        Self::write_config_u8(device, guest_memory, offset+3, value.to_le_bytes()[3]);
+        Self::write_config_u8(device, guest_memory, offset + 1, value.to_le_bytes()[1]);
+        Self::write_config_u8(device, guest_memory, offset + 2, value.to_le_bytes()[2]);
+        Self::write_config_u8(device, guest_memory, offset + 3, value.to_le_bytes()[3]);
     }
 
     fn reset(device: &mut GuestDevice<Self>, guest_memory: &mut MemoryRegion);
@@ -83,24 +101,54 @@ pub struct DescriptorTable<'a> {
 }
 #[allow(unused)]
 impl<'a> DescriptorTable<'a> {
-    fn desc_addr(&self, index: usize) -> u64 { LittleEndian::read_u64(&self.desc[16*index..]) }
-    fn desc_len(&self, index: usize) -> u32 { LittleEndian::read_u32(&self.desc[8+16*index..]) }
-    fn desc_flags(&self, index: usize) -> u16 { LittleEndian::read_u16(&self.desc[12+16*index..]) }
-    fn desc_next(&self, index: usize) -> u16 { LittleEndian::read_u16(&self.desc[14+16*index..]) }
+    fn desc_addr(&self, index: usize) -> u64 {
+        LittleEndian::read_u64(&self.desc[16 * index..])
+    }
+    fn desc_len(&self, index: usize) -> u32 {
+        LittleEndian::read_u32(&self.desc[8 + 16 * index..])
+    }
+    fn desc_flags(&self, index: usize) -> u16 {
+        LittleEndian::read_u16(&self.desc[12 + 16 * index..])
+    }
+    fn desc_next(&self, index: usize) -> u16 {
+        LittleEndian::read_u16(&self.desc[14 + 16 * index..])
+    }
 
-    fn avail_flags(&self) -> u16 { LittleEndian::read_u16(&self.avail) }
-    fn avail_idx(&self) -> u16 { LittleEndian::read_u16(&self.avail[2..]) }
-    fn avail_ring(&self, index: usize) -> u16 { LittleEndian::read_u16(&self.avail[4+2*index..]) }
+    fn avail_flags(&self) -> u16 {
+        LittleEndian::read_u16(&self.avail)
+    }
+    fn avail_idx(&self) -> u16 {
+        LittleEndian::read_u16(&self.avail[2..])
+    }
+    fn avail_ring(&self, index: usize) -> u16 {
+        LittleEndian::read_u16(&self.avail[4 + 2 * index..])
+    }
 
-    fn used_flags(&self) -> u16 { LittleEndian::read_u16(&self.used) }
-    fn used_idx(&self) -> u16 { LittleEndian::read_u16(&self.used[2..]) }
-    fn used_ring_id(&self, index: usize) -> u32 { LittleEndian::read_u32(&self.used[4+8*index..]) }
-    fn used_ring_len(&self, index: usize) -> u32 { LittleEndian::read_u32(&self.used[8+8*index..]) }
+    fn used_flags(&self) -> u16 {
+        LittleEndian::read_u16(&self.used)
+    }
+    fn used_idx(&self) -> u16 {
+        LittleEndian::read_u16(&self.used[2..])
+    }
+    fn used_ring_id(&self, index: usize) -> u32 {
+        LittleEndian::read_u32(&self.used[4 + 8 * index..])
+    }
+    fn used_ring_len(&self, index: usize) -> u32 {
+        LittleEndian::read_u32(&self.used[8 + 8 * index..])
+    }
 
-    fn set_used_flags(&mut self, value: u16) { LittleEndian::write_u16(&mut self.used, value) }
-    fn set_used_idx(&mut self, value: u16) { LittleEndian::write_u16(&mut self.used[2..], value) }
-    fn set_used_ring_id(&mut self, index: usize, value: u32) { LittleEndian::write_u32(&mut self.used[4+8*index..], value) }
-    fn set_used_ring_len(&mut self, index: usize, value: u32) { LittleEndian::write_u32(&mut self.used[8+8*index..], value) }
+    fn set_used_flags(&mut self, value: u16) {
+        LittleEndian::write_u16(&mut self.used, value)
+    }
+    fn set_used_idx(&mut self, value: u16) {
+        LittleEndian::write_u16(&mut self.used[2..], value)
+    }
+    fn set_used_ring_id(&mut self, index: usize, value: u32) {
+        LittleEndian::write_u32(&mut self.used[4 + 8 * index..], value)
+    }
+    fn set_used_ring_len(&mut self, index: usize, value: u32) {
+        LittleEndian::write_u32(&mut self.used[8 + 8 * index..], value)
+    }
 }
 
 pub struct GuestDevice<D: Driver> {
@@ -162,7 +210,9 @@ impl<D: Driver> GuestDevice<D> {
             REG_DEVICE_ID => D::DEVICE_ID,
             REG_VENDOR_ID => VENDOR_ID,
             REG_HOST_FEATURES if self.host_features_sel == 0 => (D::FEATURES & 0xffffffff) as u32,
-            REG_HOST_FEATURES if self.host_features_sel == 1 => ((D::FEATURES >> 32) & 0xffffffff) as u32,
+            REG_HOST_FEATURES if self.host_features_sel == 1 => {
+                ((D::FEATURES >> 32) & 0xffffffff) as u32
+            }
             REG_HOST_FEATURES => 0,
             REG_HOST_FEATURES_SEL => self.host_features_sel,
             REG_GUEST_FEATURES => 0,
@@ -181,7 +231,7 @@ impl<D: Driver> GuestDevice<D> {
         }
     }
 
-    pub fn write_u8(&mut self, guest_memory: &mut MemoryRegion, offset: u64, value: u8)  {
+    pub fn write_u8(&mut self, guest_memory: &mut MemoryRegion, offset: u64, value: u8) {
         if offset > 0x100 {
             D::write_config_u8(self, guest_memory, offset, value);
         }
@@ -199,8 +249,12 @@ impl<D: Driver> GuestDevice<D> {
 
         match offset {
             REG_HOST_FEATURES_SEL => self.host_features_sel = value,
-            REG_GUEST_FEATURES if self.guest_features_sel == 0 => self.guest_features = (self.guest_features & !0xffffffff) | value as u64,
-            REG_GUEST_FEATURES if self.guest_features_sel == 1 => self.guest_features = (self.guest_features & 0xffffffff) | ((value as u64) << 32),
+            REG_GUEST_FEATURES if self.guest_features_sel == 0 => {
+                self.guest_features = (self.guest_features & !0xffffffff) | value as u64
+            }
+            REG_GUEST_FEATURES if self.guest_features_sel == 1 => {
+                self.guest_features = (self.guest_features & 0xffffffff) | ((value as u64) << 32)
+            }
             REG_GUEST_FEATURES_SEL => self.guest_features_sel = value,
             REG_GUEST_PAGE_SIZE => self.guest_page_size = value,
             REG_QUEUE_SEL => self.queue_sel = value,
@@ -217,7 +271,7 @@ impl<D: Driver> GuestDevice<D> {
                     self.status = value;
                 }
             }
-            _ => {},
+            _ => {}
         }
     }
 
@@ -240,7 +294,12 @@ impl<D: Driver> GuestDevice<D> {
         self.interrupt_status = 0;
     }
 
-    fn with_buffer<F: FnOnce(&[&[u8]]) -> Option<u32>>(&mut self, guest_memory: &mut MemoryRegion, queue: u32, f: F) {
+    fn with_buffer<F: FnOnce(&[&[u8]]) -> Option<u32>>(
+        &mut self,
+        guest_memory: &mut MemoryRegion,
+        queue: u32,
+        f: F,
+    ) {
         let dt = self.get_queue(guest_memory, queue);
 
         if dt.avail_idx() == dt.used_idx() {
@@ -284,7 +343,11 @@ impl<D: Driver> GuestDevice<D> {
         }
     }
 
-    fn get_queue<'a>(&'a mut self, guest_memory: &'a mut MemoryRegion, queue: u32) -> DescriptorTable<'a> {
+    fn get_queue<'a>(
+        &'a mut self,
+        guest_memory: &'a mut MemoryRegion,
+        queue: u32,
+    ) -> DescriptorTable<'a> {
         let pfn = self.queue_pfn[queue as usize];
         let queue_size = self.queue_num[queue as usize] as usize;
         let align = self.queue_align[queue as usize] as usize;
@@ -304,7 +367,7 @@ impl<D: Driver> GuestDevice<D> {
             desc,
             avail,
             used,
-            queue_size
+            queue_size,
         }
     }
 }

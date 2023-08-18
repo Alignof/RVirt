@@ -23,7 +23,11 @@ pub fn handle_page_fault(state: &mut Context, cause: u64, instruction: Option<u3
     };
 
     let page = guest_va & !0xfff;
-    if let Some(translation) = translate_guest_address(&state.guest_memory, (state.csrs.satp & SATP_PPN) << 12, page) {
+    if let Some(translation) = translate_guest_address(
+        &state.guest_memory,
+        (state.csrs.satp & SATP_PPN) << 12,
+        page,
+    ) {
         // Check R/W/X bits
         if translation.pte_value & access == 0 {
             return false;
@@ -31,8 +35,16 @@ pub fn handle_page_fault(state: &mut Context, cause: u64, instruction: Option<u3
 
         // Check U bit
         match shadow {
-            PageTableRoot::UVA => if translation.pte_value & PTE_USER == 0 { return false; }
-            PageTableRoot::KVA => if translation.pte_value & PTE_USER != 0 { return false; }
+            PageTableRoot::UVA => {
+                if translation.pte_value & PTE_USER == 0 {
+                    return false;
+                }
+            }
+            PageTableRoot::KVA => {
+                if translation.pte_value & PTE_USER != 0 {
+                    return false;
+                }
+            }
             PageTableRoot::MVA => {}
             _ => unreachable!(),
         }
@@ -63,7 +75,8 @@ pub fn handle_page_fault(state: &mut Context, cause: u64, instruction: Option<u3
             if virtio::is_queue_access(state, translation.guest_pa) {
                 let guest_pa = (translation.guest_pa & !0xfff) | (guest_va & 0xfff);
                 let host_pa = (host_pa & !0xfff) | (guest_va & 0xfff);
-                let instruction = instruction.expect("attempted to execute code from virtio queue page");
+                let instruction =
+                    instruction.expect("attempted to execute code from virtio queue page");
                 return virtio::handle_queue_access(state, guest_pa, host_pa, instruction);
             }
 
@@ -73,8 +86,11 @@ pub fn handle_page_fault(state: &mut Context, cause: u64, instruction: Option<u3
                 PageTableLevel::Level1GB => 0x200,
             };
 
-            let new_shadow_pte = (host_pa >> 2) | reserved_bits | perm | PTE_AD | PTE_USER | PTE_VALID;
-            let old_shadow_pte = state.shadow_page_tables.rmw_mapping(shadow, page, new_shadow_pte);
+            let new_shadow_pte =
+                (host_pa >> 2) | reserved_bits | perm | PTE_AD | PTE_USER | PTE_VALID;
+            let old_shadow_pte = state
+                .shadow_page_tables
+                .rmw_mapping(shadow, page, new_shadow_pte);
 
             // Flushing the TLB entry for a virtual address can be very expensive and we only need
             // to do one here if the processor cache invalid TLB entries. The logic below attempts
@@ -100,7 +116,7 @@ pub fn handle_page_fault(state: &mut Context, cause: u64, instruction: Option<u3
                 }
 
                 if is_plic_access(pa) {
-                    return handle_plic_access(state, pa, instruction)
+                    return handle_plic_access(state, pa, instruction);
                 }
 
                 if virtio::is_device_access(state, pa) {
@@ -128,7 +144,12 @@ fn handle_uart_access(state: &mut Context, guest_pa: u64, instruction: u32) -> b
             state.uart.write(&state.host_clint, guest_pa, value);
         }
         Some(instr) => {
-            println!("UART: Instruction {:?} used to target addr {:#x} from pc {:#x}", instr, guest_pa, csrr!(sepc));
+            println!(
+                "UART: Instruction {:?} used to target addr {:#x} from pc {:#x}",
+                instr,
+                guest_pa,
+                csrr!(sepc)
+            );
             loop {}
         }
         _ => return false,
@@ -160,11 +181,20 @@ fn handle_plic_access(state: &mut Context, guest_pa: u64, instruction: u32) -> b
             state.no_interrupt = false;
         }
         Some(instr) => {
-            println!("PLIC: Instruction {:?} used to target addr {:#x} from pc {:#x}", instr, guest_pa, csrr!(sepc));
+            println!(
+                "PLIC: Instruction {:?} used to target addr {:#x} from pc {:#x}",
+                instr,
+                guest_pa,
+                csrr!(sepc)
+            );
             loop {}
         }
         _ => {
-            println!("Unrecognized instruction targetting PLIC {:#x} at {:#x}!", instruction, csrr!(sepc));
+            println!(
+                "Unrecognized instruction targetting PLIC {:#x} at {:#x}!",
+                instruction,
+                csrr!(sepc)
+            );
             loop {}
         }
     }

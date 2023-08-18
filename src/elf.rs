@@ -36,18 +36,18 @@ pub struct Ident {
 pub struct Elf64 {
     ident: Ident,
     type_: u16,
-	machine: u16,
-	version: u32,
-	entry: u64,
-	phoff: u64,
-	shoff: u64,
-	flags: u32,
-	ehsize: u16,
-	phentsize: u16,
-	phnum: u16,
-	shentsize: u16,
-	shnum: u16,
-	shstrndx: u16,
+    machine: u16,
+    version: u32,
+    entry: u64,
+    phoff: u64,
+    shoff: u64,
+    flags: u32,
+    ehsize: u16,
+    phentsize: u16,
+    phnum: u16,
+    shentsize: u16,
+    shnum: u16,
+    shstrndx: u16,
 }
 
 #[repr(C)]
@@ -75,7 +75,8 @@ pub unsafe fn load_elf(data: *const u8, base_address: *mut u8) -> (u64, u64) {
 
     let mut max_addr = 0;
     for i in 0..(elf.phnum as usize) {
-        let ph = &*(data.add(elf.phoff as usize + i * elf.phentsize as usize) as *const ProgramHeader64);
+        let ph =
+            &*(data.add(elf.phoff as usize + i * elf.phentsize as usize) as *const ProgramHeader64);
 
         if ph.type_ == ELF_PROG_LOAD {
             if ph.file_size > 0 {

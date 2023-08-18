@@ -1,9 +1,9 @@
+use crate::constants::*;
+use crate::pmap;
+use crate::print::{self, UartWriter};
 use arr_macro::arr;
 use core::sync::atomic::AtomicBool;
 use spin::Mutex;
-use crate::constants::*;
-use crate::print::{self, UartWriter};
-use crate::pmap;
 
 #[derive(Copy, Clone, Debug)]
 pub enum IpiReason {
@@ -15,10 +15,10 @@ pub enum IpiReason {
         a4: u64,
         sp: u64,
         satp: u64,
-    }
+    },
 }
 
-#[repr(C,align(4096))]
+#[repr(C, align(4096))]
 pub struct Shared {
     pub boot_page_tables: [[u64; 1024]; MAX_HOST_HARTS],
     pub ipi_reason_array: [Mutex<Option<IpiReason>>; MAX_HOST_HARTS],
@@ -28,9 +28,8 @@ pub struct Shared {
 
 pub struct ConditionalPointer(u64);
 
-
 #[cfg(feature = "physical_symbol_addresses")]
- pub const SHARED_STATICS: ConditionalPointer = ConditionalPointer(MACHINE_SHARED_STATIC_ADDRESS);
+pub const SHARED_STATICS: ConditionalPointer = ConditionalPointer(MACHINE_SHARED_STATIC_ADDRESS);
 #[cfg(not(feature = "physical_symbol_addresses"))]
 pub const SHARED_STATICS: ConditionalPointer = ConditionalPointer(SUPERVISOR_SHARED_STATIC_ADDRESS);
 

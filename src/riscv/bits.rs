@@ -18,12 +18,7 @@ pub const STATUS_MPP_U: u64 = 0 << 11;
 
 // Mask of writable bits in sstatus.
 pub const SSTATUS_WRITABLE_MASK: u64 =
-    STATUS_MXR |
-STATUS_SUM |
-STATUS_FS |
-STATUS_SPP |
-STATUS_SPIE |
-STATUS_SIE;
+    STATUS_MXR | STATUS_SUM | STATUS_FS | STATUS_SPP | STATUS_SPIE | STATUS_SIE;
 pub const SSTATUS_DYNAMIC_MASK: u64 = STATUS_SD | STATUS_FS;
 
 pub const IP_SSIP: u64 = 1 << 1;
@@ -38,7 +33,7 @@ pub const SATP_MODE: u64 = 0xf << 60;
 pub const SATP_ASID: u64 = 0xffff << 44;
 pub const SATP_PPN: u64 = 0xfff_ffffffff;
 
-pub const SSTACK_BASE: u64 = 0xffffffffc0a00000 - 32*8;
+pub const SSTACK_BASE: u64 = 0xffffffffc0a00000 - 32 * 8;
 
 pub const SCAUSE_INSN_MISALIGNED: u64 = 0;
 pub const SCAUSE_INSN_ACCESS_FAULT: u64 = 1;

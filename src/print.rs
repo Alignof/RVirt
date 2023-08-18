@@ -1,8 +1,8 @@
-use core::{fmt, ptr};
-use spin::MutexGuard;
-use crate::statics::SHARED_STATICS;
 use crate::fdt::UartType;
 use crate::pmap;
+use crate::statics::SHARED_STATICS;
+use core::{fmt, ptr};
+use spin::MutexGuard;
 
 // see https://github.com/riscv/riscv-pk/blob/master/machine/uart16550.c
 // see: https://os.phil-opp.com/printing-to-screen
@@ -32,7 +32,9 @@ impl UartWriterInner {
     fn putchar(&mut self, base_address: u64, ch: u8) {
         unsafe {
             match *self {
-                UartWriterInner::Ns16550a { ref mut initialized } => {
+                UartWriterInner::Ns16550a {
+                    ref mut initialized,
+                } => {
                     let base_address = base_address as *mut u8;
                     if !*initialized {
                         Self::initialize_ns16550a(base_address);
@@ -59,7 +61,9 @@ impl UartWriterInner {
     fn getchar(&mut self, base_address: u64) -> Option<u8> {
         unsafe {
             match *self {
-                UartWriterInner::Ns16550a { ref mut initialized } => {
+                UartWriterInner::Ns16550a {
+                    ref mut initialized,
+                } => {
                     let base_address = base_address as *mut u8;
                     if !*initialized {
                         Self::initialize_ns16550a(base_address);
@@ -106,9 +110,7 @@ impl UartWriter {
             assert_eq!(ty, UartType::Ns16550a);
         } else {
             self.inner = match ty {
-                UartType::Ns16550a => UartWriterInner::Ns16550a {
-                    initialized: false,
-                },
+                UartType::Ns16550a => UartWriterInner::Ns16550a { initialized: false },
                 UartType::SiFive => UartWriterInner::SiFive,
             };
             self.pa = address;

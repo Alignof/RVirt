@@ -8,10 +8,22 @@
 use rvirt::*;
 
 // mandatory rust environment setup
-#[lang = "eh_personality"] extern fn eh_personality() {}
-#[panic_handler] fn panic(info: &::core::panic::PanicInfo) -> ! { println!("{}", info); loop {}}
-#[start] fn start(_argc: isize, _argv: *const *const u8) -> isize {0}
-#[no_mangle] fn abort() -> ! { println!("Abort!"); loop {}}
+#[lang = "eh_personality"]
+extern "C" fn eh_personality() {}
+#[panic_handler]
+fn panic(info: &::core::panic::PanicInfo) -> ! {
+    println!("{}", info);
+    loop {}
+}
+#[start]
+fn start(_argc: isize, _argv: *const *const u8) -> isize {
+    0
+}
+#[no_mangle]
+fn abort() -> ! {
+    println!("Abort!");
+    loop {}
+}
 
 const M_MODE_STACK_BASE: u64 = 0x80810000;
 const M_MODE_STACK_STRIDE: u64 = 0x10000;

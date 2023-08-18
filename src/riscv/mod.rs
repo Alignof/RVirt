@@ -1,8 +1,8 @@
 #[macro_use]
 pub mod instructions;
 
-pub mod csr;
 pub mod bits;
+pub mod csr;
 pub mod sbi;
 
 pub use instructions::*;
@@ -23,7 +23,7 @@ pub const CAUSE_STRINGS: [&str; 16] = [
     "Instruction page fault",
     "Load page fault",
     "Reserved (13)",
-    "Store/AMO page fault"
+    "Store/AMO page fault",
 ];
 
 pub fn cause_to_str(cause: u64) -> &'static str {

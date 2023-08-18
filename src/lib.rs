@@ -1,4 +1,3 @@
-
 //! ## Start-up sequence summary:
 //! - QEMU loads hypervisor kernel (this program) and linux kernel (held in initrd) into memory
 //! - QEMU launches hardcoded mrom reset vector, which jumps to 0x80000000
@@ -114,9 +113,9 @@ pub mod sum;
 pub mod trap;
 pub mod virtio;
 
-pub use core::sync::atomic::{AtomicBool, Ordering};
 pub use constants::SYMBOL_PA2VA_OFFSET;
+pub use core::sync::atomic::{AtomicBool, Ordering};
 pub use fdt::*;
+pub use pmap::pa2va;
 pub use riscv::bits::*;
-pub use pmap::{pa2va};
-pub use statics::{__SHARED_STATICS_IMPL, IpiReason, SHARED_STATICS};
+pub use statics::{IpiReason, SHARED_STATICS, __SHARED_STATICS_IMPL};

@@ -1,6 +1,6 @@
+use crate::pmap;
 use core::mem;
 use core::ops::{Index, IndexMut};
-use crate::pmap;
 
 pub struct MemoryRegion<T: Copy = u64> {
     ptr: *mut T,
@@ -63,8 +63,10 @@ impl<T: Copy> MemoryRegion<T> {
         assert!(self.length_bytes - offset >= len);
 
         unsafe {
-            core::slice::from_raw_parts((self.ptr as *mut u8).wrapping_add(offset as usize),
-                                        len as usize)
+            core::slice::from_raw_parts(
+                (self.ptr as *mut u8).wrapping_add(offset as usize),
+                len as usize,
+            )
         }
     }
 
@@ -77,8 +79,10 @@ impl<T: Copy> MemoryRegion<T> {
         assert!(self.length_bytes - offset >= len);
 
         unsafe {
-            core::slice::from_raw_parts_mut((self.ptr as *mut u8).wrapping_add(offset as usize),
-                                            len as usize)
+            core::slice::from_raw_parts_mut(
+                (self.ptr as *mut u8).wrapping_add(offset as usize),
+                len as usize,
+            )
         }
     }
 }
@@ -125,10 +129,7 @@ impl PageTableRegion {
 
         let end_pa = pmap::va2pa(region.ptr as u64) + region.length_bytes;
 
-        Self {
-            region,
-            end_pa,
-        }
+        Self { region, end_pa }
     }
 
     pub unsafe fn set_pte_unchecked(&mut self, pte_address: u64, pte_value: u64) {

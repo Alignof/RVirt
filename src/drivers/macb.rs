@@ -1,4 +1,3 @@
-
 // References:
 //
 // https://github.com/qemu/qemu/blob/d522fba24478474911b0e6e488b6d1dcf1af54f8/hw/net/cadence_gem.c
@@ -7,8 +6,8 @@
 
 #![allow(unused)]
 
-use crate::memory_region::MemoryRegion;
 use super::*;
+use crate::memory_region::MemoryRegion;
 
 const GEM_DMACFG: u64 = 0x00000010;
 
@@ -40,19 +39,26 @@ impl Driver for MacbDriver {
     fn interrupt(device: &mut GuestDevice<Self>, _guest_memory: &mut MemoryRegion) -> bool {
         false
     }
-    fn doorbell(device: &mut GuestDevice<Self>, _guest_memory: &mut MemoryRegion, queue: u32) {
+    fn doorbell(device: &mut GuestDevice<Self>, _guest_memory: &mut MemoryRegion, queue: u32) {}
 
-    }
-
-    fn read_config_u8(device: &GuestDevice<Self>, _guest_memory: &mut MemoryRegion, offset: u64) -> u8 {
+    fn read_config_u8(
+        device: &GuestDevice<Self>,
+        _guest_memory: &mut MemoryRegion,
+        offset: u64,
+    ) -> u8 {
         match offset {
             0..=5 => device.host_driver.mac[offset as usize],
             10 => VIRTIO_MTU.to_le_bytes()[0],
             11 => VIRTIO_MTU.to_le_bytes()[1],
-            _ => 0
+            _ => 0,
         }
     }
-    fn write_config_u8(device: &mut GuestDevice<Self>, _guest_memory: &mut MemoryRegion, offset: u64, value: u8) {
+    fn write_config_u8(
+        device: &mut GuestDevice<Self>,
+        _guest_memory: &mut MemoryRegion,
+        offset: u64,
+        value: u8,
+    ) {
         match offset {
             0..=5 => {
                 device.host_driver.mac[offset as usize] = value;
@@ -62,7 +68,5 @@ impl Driver for MacbDriver {
         }
     }
 
-    fn reset(device: &mut GuestDevice<Self>, _guest_memory: &mut MemoryRegion) {
-
-    }
+    fn reset(device: &mut GuestDevice<Self>, _guest_memory: &mut MemoryRegion) {}
 }

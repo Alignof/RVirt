@@ -1,6 +1,6 @@
-use crate::fdt::MachineMeta;
-use crate::context::Context;
 use crate::constants::SYMBOL_PA2VA_OFFSET;
+use crate::context::Context;
+use crate::fdt::MachineMeta;
 use crate::memory_region::{MemoryRegion, PageTableRegion};
 use crate::riscv;
 use arr_macro::arr;
@@ -65,14 +65,14 @@ pub const fn make_boot_page_table(base_pa: u64) -> [u64; 1024] {
             ((base_pa + 4096) >> 2) | 0x01,
             0x20000000 | 0xcb,
             (0x20000000 + (i.wrapping_sub(512) << 19)) | 0xc7,
-            ((i - DIRECT_MAP_PT_INDEX/8) << 28) | PTE_AD | PTE_RWXV,
+            ((i - DIRECT_MAP_PT_INDEX / 8) << 28) | PTE_AD | PTE_RWXV,
         ];
 
-        let index =
-            1 * (i == 511) as usize +
-            2 * (i == 512) as usize +
-            3 * (i >= 513) as usize +
-            4 * (i >= DIRECT_MAP_PT_INDEX/8) as usize * (i < DIRECT_MAP_PT_INDEX/8 + DIRECT_MAP_PAGES) as usize;
+        let index = 1 * (i == 511) as usize
+            + 2 * (i == 512) as usize
+            + 3 * (i >= 513) as usize
+            + 4 * (i >= DIRECT_MAP_PT_INDEX / 8) as usize
+                * (i < DIRECT_MAP_PT_INDEX / 8 + DIRECT_MAP_PAGES) as usize;
 
         possible_values[index]
     }
@@ -168,7 +168,10 @@ impl PageTables {
 
     pub fn rmw_mapping(&mut self, root: PageTableRoot, va: u64, pte: u64) -> u64 {
         if va >= DIRECT_MAP_OFFSET {
-            panic!("Guest attempted to access reserved virtual address: {:x}", va);
+            panic!(
+                "Guest attempted to access reserved virtual address: {:x}",
+                va
+            );
         }
 
         let pte_addr = self.pte_for_addr(root, va);
@@ -195,7 +198,8 @@ impl PageTables {
                 page_table = (pte >> 10) << 12;
             } else {
                 let page = self.alloc_page();
-                self.region.set_nonleaf_pte(pte_addr, (page >> 2) | PTE_VALID);
+                self.region
+                    .set_nonleaf_pte(pte_addr, (page >> 2) | PTE_VALID);
                 page_table = page;
             }
         }
@@ -243,11 +247,13 @@ impl PageTables {
     }
 }
 
-pub fn pa2va(pa: u64) -> u64 { pa + DIRECT_MAP_OFFSET }
+pub fn pa2va(pa: u64) -> u64 {
+    pa + DIRECT_MAP_OFFSET
+}
 pub fn va2pa(va: u64) -> u64 {
-     // Must be in HPA region.
+    // Must be in HPA region.
     assert!(va >= DIRECT_MAP_OFFSET);
-    assert!(va < DIRECT_MAP_OFFSET + (DIRECT_MAP_PAGES<<30));
+    assert!(va < DIRECT_MAP_OFFSET + (DIRECT_MAP_PAGES << 30));
     va - DIRECT_MAP_OFFSET
 }
 
@@ -260,7 +266,11 @@ pub struct PageTableWalk {
     pub path: ArrayVec<[Pte; 3]>,
     pub pa: u64,
 }
-pub fn walk_page_table<R: Fn(u64) -> Option<u64>>(root: u64, va: u64, read_pte: R) -> Option<PageTableWalk> {
+pub fn walk_page_table<R: Fn(u64) -> Option<u64>>(
+    root: u64,
+    va: u64,
+    read_pte: R,
+) -> Option<PageTableWalk> {
     if !is_sv39(va) || root % PAGE_SIZE != 0 {
         return None;
     }
@@ -278,7 +288,11 @@ pub fn walk_page_table<R: Fn(u64) -> Option<u64>>(root: u64, va: u64, read_pte: 
             _ => unreachable!(),
         };
 
-        path.push(Pte {addr: pte_addr, value: pte, level});
+        path.push(Pte {
+            addr: pte_addr,
+            value: pte,
+            level,
+        });
 
         if pte & PTE_VALID == 0 || ((pte & PTE_WRITE) != 0 && (pte & PTE_READ) == 0) {
             return None;
@@ -288,7 +302,7 @@ pub fn walk_page_table<R: Fn(u64) -> Option<u64>>(root: u64, va: u64, read_pte: 
                 PageTableLevel::Level2MB => ((pte >> 19) << 21) | (va & 0x1fffff),
                 PageTableLevel::Level1GB => ((pte >> 28) << 30) | (va & 0x3fffffff),
             };
-            return Some(PageTableWalk{path, pa});
+            return Some(PageTableWalk { path, pa });
         } else {
             page_table = (pte >> 10) << 12;
         }
@@ -316,39 +330,54 @@ pub struct AddressTranslation {
     pub level: PageTableLevel,
 }
 
-pub fn translate_guest_address(guest_memory: &MemoryRegion, root_page_table: u64, addr: u64)
-                               -> Option<AddressTranslation> {
-    walk_page_table(root_page_table, addr, |pa| guest_memory.get(pa)).map(|t| {
-        AddressTranslation {
-            pte_value: t.path[t.path.len() - 1].value,
-            pte_addr: t.path[t.path.len() - 1].addr,
-            level: t.path[t.path.len() - 1].level,
-            guest_pa: t.pa,
-        }
+pub fn translate_guest_address(
+    guest_memory: &MemoryRegion,
+    root_page_table: u64,
+    addr: u64,
+) -> Option<AddressTranslation> {
+    walk_page_table(root_page_table, addr, |pa| guest_memory.get(pa)).map(|t| AddressTranslation {
+        pte_value: t.path[t.path.len() - 1].value,
+        pte_addr: t.path[t.path.len() - 1].addr,
+        level: t.path[t.path.len() - 1].level,
+        guest_pa: t.pa,
     })
 }
 pub fn translate_host_address(addr: u64) -> Option<PageTableWalk> {
     // The currently installed page table should always have all of its pages mapped in the direct
     // map region, thus deferencing pointers during a page table walk should always be safe.
     let root_page_table = (csrr!(satp) & riscv::bits::SATP_PPN) << 12;
-    walk_page_table(root_page_table, addr, |pa| Some(unsafe { *(pa2va(pa) as *const u64) }))
+    walk_page_table(root_page_table, addr, |pa| {
+        Some(unsafe { *(pa2va(pa) as *const u64) })
+    })
 }
 
-pub unsafe fn init(hart_base_pa: u64, shared_segments_shift: u64, machine: &MachineMeta) -> (PageTables, MemoryRegion, u64) {
+pub unsafe fn init(
+    hart_base_pa: u64,
+    shared_segments_shift: u64,
+    machine: &MachineMeta,
+) -> (PageTables, MemoryRegion, u64) {
     assert_eq!(hart_base_pa % HART_SEGMENT_SIZE, 0);
 
     let gpm_offset = machine.physical_memory_offset;
     let gpm_size = HART_SEGMENT_SIZE.checked_sub(VM_RESERVATION_SIZE).unwrap();
-    let guest_shift = VM_RESERVATION_SIZE + hart_base_pa.checked_sub(machine.physical_memory_offset).unwrap();
+    let guest_shift = VM_RESERVATION_SIZE
+        + hart_base_pa
+            .checked_sub(machine.physical_memory_offset)
+            .unwrap();
     assert_eq!(gpm_offset, 0x80000000);
     assert!(gpm_size > 64 * 1024 * 1024);
 
     // Create guest memory region
-    let guest_memory = MemoryRegion::with_base_address(pa2va(gpm_offset + guest_shift), machine.physical_memory_offset, gpm_size);
+    let guest_memory = MemoryRegion::with_base_address(
+        pa2va(gpm_offset + guest_shift),
+        machine.physical_memory_offset,
+        gpm_size,
+    );
 
     // Create shadow page tables
     let memory_region = MemoryRegion::new(pa2va(hart_base_pa + PT_REGION_OFFSET), PT_REGION_SIZE);
-    let mut shadow_page_tables = PageTables::new(memory_region, machine.initrd_start, machine.initrd_end);
+    let mut shadow_page_tables =
+        PageTables::new(memory_region, machine.initrd_start, machine.initrd_end);
 
     let sshift = shared_segments_shift >> 2;
 
@@ -359,20 +388,26 @@ pub unsafe fn init(hart_base_pa: u64, shared_segments_shift: u64, machine: &Mach
 
         *((va + DIRECT_MAP_PT_INDEX + 0 * 8) as *mut u64) = (0 << 28) | PTE_AD | PTE_RWV;
         *((va + DIRECT_MAP_PT_INDEX + 1 * 8) as *mut u64) = (1 << 28) | PTE_AD | PTE_RWV;
-        *((va + DIRECT_MAP_PT_INDEX + (hart_base_pa >> 30) * 8) as *mut u64) = (hart_base_pa >> 2) | PTE_AD | PTE_RWV;
+        *((va + DIRECT_MAP_PT_INDEX + (hart_base_pa >> 30) * 8) as *mut u64) =
+            (hart_base_pa >> 2) | PTE_AD | PTE_RWV;
 
         // Hypervisor code + data
         let hp = 2 << 18;
         let page = shadow_page_tables.alloc_page();
         *((va + 0xff8) as *mut u64) = (page >> 2) | PTE_VALID;
-        shadow_page_tables.region.set_pte_unchecked(
-            page, (0x20000000+sshift) | PTE_AD | PTE_RXV);       // Code + read only data
-        shadow_page_tables.region.set_pte_unchecked(
-            page+8, (0x20000000+sshift+hp) | PTE_AD | PTE_RWV);  // Shared data
-        shadow_page_tables.region.set_pte_unchecked(
-            page+16, ((hart_base_pa>>2)) | PTE_AD | PTE_RWV);    // Data
-        shadow_page_tables.region.set_pte_unchecked(
-            page+32, ((hart_base_pa>>2)+hp) | PTE_AD | PTE_RWV); // Stack
+        shadow_page_tables
+            .region
+            .set_pte_unchecked(page, (0x20000000 + sshift) | PTE_AD | PTE_RXV); // Code + read only data
+        shadow_page_tables
+            .region
+            .set_pte_unchecked(page + 8, (0x20000000 + sshift + hp) | PTE_AD | PTE_RWV); // Shared data
+        shadow_page_tables
+            .region
+            .set_pte_unchecked(page + 16, (hart_base_pa >> 2) | PTE_AD | PTE_RWV); // Data
+        shadow_page_tables
+            .region
+            .set_pte_unchecked(page + 32, ((hart_base_pa >> 2) + hp) | PTE_AD | PTE_RWV);
+        // Stack
     }
     shadow_page_tables.install_root(MPA);
 
@@ -380,7 +415,7 @@ pub unsafe fn init(hart_base_pa: u64, shared_segments_shift: u64, machine: &Mach
     assert_eq!(gpm_size % HPAGE_SIZE, 0);
     let root_pa = shadow_page_tables.root_pa(MPA);
     let npages = gpm_size / HPAGE_SIZE;
-    for p in 0..npages  {
+    for p in 0..npages {
         let va = gpm_offset + p * HPAGE_SIZE;
         let pa = va + guest_shift;
 
@@ -392,11 +427,15 @@ pub unsafe fn init(hart_base_pa: u64, shared_segments_shift: u64, machine: &Mach
             (pte >> 10) << 12
         } else {
             let page = shadow_page_tables.alloc_page();
-            shadow_page_tables.region.set_nonleaf_pte(pte_addr, (page >> 2) | PTE_VALID);
+            shadow_page_tables
+                .region
+                .set_nonleaf_pte(pte_addr, (page >> 2) | PTE_VALID);
             page
         };
-        shadow_page_tables.region.set_leaf_pte(page_table + ((va >> 21) & 0x1ff) * 8,
-                                               (pa >> 2) | PTE_AD | PTE_USER | PTE_RWXV);
+        shadow_page_tables.region.set_leaf_pte(
+            page_table + ((va >> 21) & 0x1ff) * 8,
+            (pa >> 2) | PTE_AD | PTE_USER | PTE_RWXV,
+        );
     }
 
     (shadow_page_tables, guest_memory, guest_shift)
@@ -405,7 +444,7 @@ pub unsafe fn init(hart_base_pa: u64, shared_segments_shift: u64, machine: &Mach
 #[allow(unused)]
 pub fn print_page_table(page_table_region: &PageTableRegion, pt: u64, level: u8) {
     for i in 0..512 {
-        let pte = page_table_region[pt + i*8];
+        let pte = page_table_region[pt + i * 8];
         if pte & PTE_VALID != 0 {
             for _ in 0..(3 - level) {
                 print!("  ");
@@ -428,7 +467,7 @@ pub fn print_guest_page_table(guest_memory: &MemoryRegion, pt: u64, level: u8, b
 
     for i in 0..512 {
         let addr = base + (i << (12 + level * 9));
-        let pte = guest_memory[pt + i*8];
+        let pte = guest_memory[pt + i * 8];
         if pte == 0 {
             continue;
         }
@@ -457,7 +496,11 @@ pub fn print_guest_page_table(guest_memory: &MemoryRegion, pt: u64, level: u8, b
 
 pub fn flush_shadow_page_table(shadow_page_tables: &mut PageTables) {
     for &root in &[UVA, KVA, MVA] {
-        shadow_page_tables.clear_page_table_range(shadow_page_tables.root_pa(root), 0, DIRECT_MAP_PT_INDEX/8);
+        shadow_page_tables.clear_page_table_range(
+            shadow_page_tables.root_pa(root),
+            0,
+            DIRECT_MAP_PT_INDEX / 8,
+        );
     }
 
     riscv::sfence_vma();
@@ -475,12 +518,19 @@ pub fn handle_sfence_vma(state: &mut Context, instruction: RType) {
 
                 match (state.shadow_page_tables.region[pte_addr] >> 8) & 0x3 {
                     0 => state.shadow_page_tables.region.set_invalid_pte(pte_addr, 0),
-                    1 => for i in 0..512 {
-                        state.shadow_page_tables.region.set_invalid_pte(
-                            (pte_addr & !(PAGE_SIZE - 1)) + i * 8, 0)
+                    1 => {
+                        for i in 0..512 {
+                            state
+                                .shadow_page_tables
+                                .region
+                                .set_invalid_pte((pte_addr & !(PAGE_SIZE - 1)) + i * 8, 0)
+                        }
                     }
                     _ => state.shadow_page_tables.clear_page_table_range(
-                        state.shadow_page_tables.root_pa(root), 0, DIRECT_MAP_PT_INDEX/8),
+                        state.shadow_page_tables.root_pa(root),
+                        0,
+                        DIRECT_MAP_PT_INDEX / 8,
+                    ),
                 }
             }
             riscv::sfence_vma_addr(va);
@@ -490,7 +540,9 @@ pub fn handle_sfence_vma(state: &mut Context, instruction: RType) {
 
 pub fn read64(guest_memory: &MemoryRegion, page_table_ppn: u64, guest_va: u64) -> Option<u64> {
     let guest_page = guest_va & !0xfff;
-    if let Some(page_translation) = translate_guest_address(guest_memory, page_table_ppn << 12, guest_page) {
+    if let Some(page_translation) =
+        translate_guest_address(guest_memory, page_table_ppn << 12, guest_page)
+    {
         // assert!(!virtio::is_queue_access(state, page_translation.guest_pa));
         let guest_pa = (page_translation.guest_pa & !0xfff) | (guest_va & 0xfff);
         return guest_memory.get(guest_pa);

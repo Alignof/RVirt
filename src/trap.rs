@@ -1,7 +1,7 @@
-use riscv_decode::Instruction;
-use crate::context::{Context, CONTEXT, IrqMapping};
+use crate::context::{Context, IrqMapping, CONTEXT};
 use crate::riscv::bits::*;
 use crate::{pfault, pmap, riscv, sum, virtio};
+use riscv_decode::Instruction;
 
 pub trait U64Bits {
     fn get(&self, mask: Self) -> bool;
@@ -137,20 +137,21 @@ pub fn strap() {
     // or instruction page fault would have been triggered). Thus, it is safe to access memory
     // pointed to by `sepc`.
     let instruction = match cause {
-        SCAUSE_LOAD_PAGE_FAULT |
-        SCAUSE_STORE_PAGE_FAULT |
-        SCAUSE_ILLEGAL_INSN => unsafe {
+        SCAUSE_LOAD_PAGE_FAULT | SCAUSE_STORE_PAGE_FAULT | SCAUSE_ILLEGAL_INSN => unsafe {
             Some(load_instruction_at_address(&mut state, csrr!(sepc)))
-        }
+        },
         _ => None,
     };
 
     if (cause as isize) < 0 {
         handle_interrupt(&mut state, cause);
         maybe_forward_interrupt(&mut state, csrr!(sepc));
-    } else if cause == SCAUSE_INSN_PAGE_FAULT || cause == SCAUSE_LOAD_PAGE_FAULT || cause == SCAUSE_STORE_PAGE_FAULT {
+    } else if cause == SCAUSE_INSN_PAGE_FAULT
+        || cause == SCAUSE_LOAD_PAGE_FAULT
+        || cause == SCAUSE_STORE_PAGE_FAULT
+    {
         let pc = csrr!(sepc);
-        if pfault::handle_page_fault(&mut state, cause, instruction.map(|i|i.0)) {
+        if pfault::handle_page_fault(&mut state, cause, instruction.map(|i| i.0)) {
             maybe_forward_interrupt(&mut state, pc);
         } else {
             forward_exception(&mut state, cause, pc);
@@ -175,42 +176,54 @@ pub fn strap() {
                 }
             }
             Some(Instruction::SfenceVma(rtype)) => pmap::handle_sfence_vma(&mut state, rtype),
-            Some(Instruction::Csrrw(i)) => if let Some(prev) = state.get_csr(i.csr()) {
-                let value = state.saved_registers.get(i.rs1());
-                state.set_csr(i.csr(), value);
-                state.saved_registers.set(i.rd(), prev);
-            }
-            Some(Instruction::Csrrs(i)) => if let Some(prev) = state.get_csr(i.csr()) {
-                let mask = state.saved_registers.get(i.rs1());
-                if mask != 0 {
-                    state.set_csr(i.csr(), prev | mask);
+            Some(Instruction::Csrrw(i)) => {
+                if let Some(prev) = state.get_csr(i.csr()) {
+                    let value = state.saved_registers.get(i.rs1());
+                    state.set_csr(i.csr(), value);
+                    state.saved_registers.set(i.rd(), prev);
                 }
-                state.saved_registers.set(i.rd(), prev);
             }
-            Some(Instruction::Csrrc(i)) => if let Some(prev) = state.get_csr(i.csr()) {
-                let mask = state.saved_registers.get(i.rs1());
-                if mask != 0 {
-                    state.set_csr(i.csr(), prev & !mask);
+            Some(Instruction::Csrrs(i)) => {
+                if let Some(prev) = state.get_csr(i.csr()) {
+                    let mask = state.saved_registers.get(i.rs1());
+                    if mask != 0 {
+                        state.set_csr(i.csr(), prev | mask);
+                    }
+                    state.saved_registers.set(i.rd(), prev);
                 }
-                state.saved_registers.set(i.rd(), prev);
             }
-            Some(Instruction::Csrrwi(i)) => if let Some(prev) = state.get_csr(i.csr()) {
-                state.set_csr(i.csr(), i.zimm() as u64);
-                state.saved_registers.set(i.rd(), prev);
-            }
-            Some(Instruction::Csrrsi(i)) => if let Some(prev) = state.get_csr(i.csr()) {
-                let mask = i.zimm() as u64;
-                if mask != 0 {
-                    state.set_csr(i.csr(), prev | mask);
+            Some(Instruction::Csrrc(i)) => {
+                if let Some(prev) = state.get_csr(i.csr()) {
+                    let mask = state.saved_registers.get(i.rs1());
+                    if mask != 0 {
+                        state.set_csr(i.csr(), prev & !mask);
+                    }
+                    state.saved_registers.set(i.rd(), prev);
                 }
-                state.saved_registers.set(i.rd(), prev);
             }
-            Some(Instruction::Csrrci(i)) => if let Some(prev) = state.get_csr(i.csr()) {
-                let mask = i.zimm() as u64;
-                if mask != 0 {
-                    state.set_csr(i.csr(), prev & !mask);
+            Some(Instruction::Csrrwi(i)) => {
+                if let Some(prev) = state.get_csr(i.csr()) {
+                    state.set_csr(i.csr(), i.zimm() as u64);
+                    state.saved_registers.set(i.rd(), prev);
                 }
-                state.saved_registers.set(i.rd(), prev);
+            }
+            Some(Instruction::Csrrsi(i)) => {
+                if let Some(prev) = state.get_csr(i.csr()) {
+                    let mask = i.zimm() as u64;
+                    if mask != 0 {
+                        state.set_csr(i.csr(), prev | mask);
+                    }
+                    state.saved_registers.set(i.rd(), prev);
+                }
+            }
+            Some(Instruction::Csrrci(i)) => {
+                if let Some(prev) = state.get_csr(i.csr()) {
+                    let mask = i.zimm() as u64;
+                    if mask != 0 {
+                        state.set_csr(i.csr(), prev & !mask);
+                    }
+                    state.saved_registers.set(i.rd(), prev);
+                }
             }
             Some(Instruction::Wfi) => {}
             Some(decoded) => {
@@ -260,8 +273,12 @@ pub fn strap() {
         }
         riscv::set_sepc(csrr!(sepc) + 4);
     } else {
-        if cause != SCAUSE_ENV_CALL { // no need to print anything for guest syscalls...
-            println!("Forward exception (cause = {}, smode={})!", cause, state.smode);
+        if cause != SCAUSE_ENV_CALL {
+            // no need to print anything for guest syscalls...
+            println!(
+                "Forward exception (cause = {}, smode={})!",
+                cause, state.smode
+            );
         }
         forward_exception(&mut state, cause, csrr!(sepc));
     }
@@ -299,11 +316,16 @@ fn handle_interrupt(state: &mut Context, cause: u64) {
             let host_irq = state.host_plic.claim_and_clear();
             let guest_irq = state.irq_map[host_irq as usize];
             match guest_irq {
-                IrqMapping::Virtio { device_index, guest_irq } => {
+                IrqMapping::Virtio {
+                    device_index,
+                    guest_irq,
+                } => {
                     let forward = match state.virtio.devices[device_index as usize] {
                         virtio::Device::Passthrough { .. } => true,
                         virtio::Device::Unmapped => false,
-                        virtio::Device::Macb(ref mut macb) => macb.interrupt(&mut state.guest_memory),
+                        virtio::Device::Macb(ref mut macb) => {
+                            macb.interrupt(&mut state.guest_memory)
+                        }
                     };
 
                     if forward {
@@ -320,7 +342,6 @@ fn handle_interrupt(state: &mut Context, cause: u64) {
                 }
                 IrqMapping::Ignored => {}
             }
-
         }
         i => {
             println!("Got interrupt #{}", i);
@@ -338,7 +359,9 @@ fn maybe_forward_interrupt(state: &mut Context, sepc: u64) {
         state.csrs.sip.set(IP_SEIP, true);
     }
 
-    if (!state.smode || state.csrs.sstatus.get(STATUS_SIE)) && (state.csrs.sie & state.csrs.sip != 0) {
+    if (!state.smode || state.csrs.sstatus.get(STATUS_SIE))
+        && (state.csrs.sie & state.csrs.sip != 0)
+    {
         let cause = if state.csrs.sip.get(IP_SEIP) {
             9
         } else if state.csrs.sip.get(IP_STIP) {
@@ -381,7 +404,7 @@ fn forward_exception(state: &mut Context, cause: u64, sepc: u64) {
 
 pub unsafe fn load_instruction_at_address(_state: &mut Context, guest_va: u64) -> (u32, u64) {
     let pc_ptr = guest_va as *const u16;
-    sum::access_user_memory(||{
+    sum::access_user_memory(|| {
         let il: u16 = *pc_ptr;
         match riscv_decode::instruction_length(il) {
             2 => (il as u32, 2),

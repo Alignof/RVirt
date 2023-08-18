@@ -24,7 +24,6 @@ impl AddressMap {
     }
 }
 
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum UartType {
     Ns16550a,
@@ -81,7 +80,7 @@ struct FdtHeader {
     size_dt_struct: u32,
 }
 
-pub struct Fdt<'a>{
+pub struct Fdt<'a> {
     header: &'a mut FdtHeader,
     strings: &'a [u8],
     nodes: &'a mut [u8],
@@ -101,7 +100,8 @@ impl<'a> Fdt<'a> {
         let size_dt_struct = header.size_dt_struct.swap_bytes() as usize;
         assert!(off_dt_struct as usize + size_dt_struct <= total_size);
 
-        let strings = slice::from_raw_parts_mut((addr + off_dt_strings) as *mut u8, size_dt_strings);
+        let strings =
+            slice::from_raw_parts_mut((addr + off_dt_strings) as *mut u8, size_dt_strings);
         let nodes = slice::from_raw_parts_mut((addr + off_dt_struct) as *mut u8, size_dt_struct);
 
         Self {
@@ -114,15 +114,33 @@ impl<'a> Fdt<'a> {
     pub fn magic_valid(&self) -> bool {
         self.header.magic == 0xedfe0dd0
     }
-    pub fn total_size(&self) -> u32 { self.header.total_size.swap_bytes() }
-    pub fn off_dt_struct(&self) -> u32 { self.header.off_dt_struct.swap_bytes() }
-    pub fn off_dt_strings(&self) -> u32 { self.header.off_dt_strings.swap_bytes() }
-    pub fn off_mem_rsvmap(&self) -> u32 { self.header.off_mem_rsvmap.swap_bytes() }
-    pub fn version(&self) -> u32 { self.header.version.swap_bytes() }
-    pub fn last_comp_version(&self) -> u32 { self.header.last_comp_version.swap_bytes() }
-    pub fn boot_cpuid_phys(&self) -> u32 { self.header.boot_cpuid_phys.swap_bytes() }
-    pub fn size_dt_strings(&self) -> u32 { self.header.size_dt_strings.swap_bytes() }
-    pub fn size_dt_struct(&self) -> u32 { self.header.size_dt_struct.swap_bytes() }
+    pub fn total_size(&self) -> u32 {
+        self.header.total_size.swap_bytes()
+    }
+    pub fn off_dt_struct(&self) -> u32 {
+        self.header.off_dt_struct.swap_bytes()
+    }
+    pub fn off_dt_strings(&self) -> u32 {
+        self.header.off_dt_strings.swap_bytes()
+    }
+    pub fn off_mem_rsvmap(&self) -> u32 {
+        self.header.off_mem_rsvmap.swap_bytes()
+    }
+    pub fn version(&self) -> u32 {
+        self.header.version.swap_bytes()
+    }
+    pub fn last_comp_version(&self) -> u32 {
+        self.header.last_comp_version.swap_bytes()
+    }
+    pub fn boot_cpuid_phys(&self) -> u32 {
+        self.header.boot_cpuid_phys.swap_bytes()
+    }
+    pub fn size_dt_strings(&self) -> u32 {
+        self.header.size_dt_strings.swap_bytes()
+    }
+    pub fn size_dt_struct(&self) -> u32 {
+        self.header.size_dt_struct.swap_bytes()
+    }
 
     pub fn get_string(strings: &[u8], offset: usize) -> &str {
         let mut end = offset;
@@ -191,66 +209,65 @@ impl<'a> Fdt<'a> {
         // hart phandle for each plic S-mode context
         let mut plic_context_phandles = [None; 64];
 
-        self.walk(|path, unit_addresses, v| {
-            match v {
-                FdtVisit::Property { name, prop } => match (path, name) {
-                    ("/chosen", "linux,initrd-end") => initrd_end = Some(prop.read_int()),
-                    ("/chosen", "linux,initrd-start") => initrd_start = Some(prop.read_int()),
-                    ("/chosen", "bootargs") => {
-                        meta.bootargs.push_str(prop.value_str()
-                                               .expect("Unable to parse bootargs string"))
-                    }
-                    ("/memory", "reg") => {
-                        let region = prop.read_range();
-                        meta.physical_memory_offset = region.0;
-                        meta.physical_memory_size = region.1;
-                    }
-                    ("/uart", "reg") |
-                    ("/soc/uart", "reg") |
-                    ("/soc/serial", "reg") => if meta.uart_address == 0 {
+        self.walk(|path, unit_addresses, v| match v {
+            FdtVisit::Property { name, prop } => match (path, name) {
+                ("/chosen", "linux,initrd-end") => initrd_end = Some(prop.read_int()),
+                ("/chosen", "linux,initrd-start") => initrd_start = Some(prop.read_int()),
+                ("/chosen", "bootargs") => meta
+                    .bootargs
+                    .push_str(prop.value_str().expect("Unable to parse bootargs string")),
+                ("/memory", "reg") => {
+                    let region = prop.read_range();
+                    meta.physical_memory_offset = region.0;
+                    meta.physical_memory_size = region.1;
+                }
+                ("/uart", "reg") | ("/soc/uart", "reg") | ("/soc/serial", "reg") => {
+                    if meta.uart_address == 0 {
                         meta.uart_address = prop.read_range().0
                     }
-                    ("/uart", "compatible") |
-                    ("/soc/uart", "compatible") |
-                    ("/soc/serial", "compatible") => if meta.uart_type.is_none() {
+                }
+                ("/uart", "compatible")
+                | ("/soc/uart", "compatible")
+                | ("/soc/serial", "compatible") => {
+                    if meta.uart_type.is_none() {
                         match prop.value_str().map(|s| s.trim_end_matches('\0')) {
                             Some("ns16550a") => meta.uart_type = Some(UartType::Ns16550a),
                             Some("sifive,uart0") => meta.uart_type = Some(UartType::SiFive),
-                            _ => {},
+                            _ => {}
                         }
                     }
-                    ("/soc/clint", "reg") => meta.clint_address = Some(prop.read_range().0),
-                    ("/test", "reg") => meta.test_finisher_address = Some(prop.read_range().0),
-                    ("/soc/interrupt-controller", "reg") => plic = Some(prop.read_range().0),
-                    ("/soc/interrupt-controller", "interrupts-extended") => {
-                        let cells = prop.cells();
-                        for i in (0..cells).step_by(2) {
-                            let irq = prop.read_cell(i + 1);
-                            if irq == 9 {
-                                plic_context_phandles[i/2] = Some(prop.read_cell(i));
-                            }
-                        }
-                    }
-                    ("/virtio_mmio", "reg") => {
-                        let index = virtio_address_map.index_of(unit_addresses[1].unwrap_or(0));
-                        virtio[index].0 = Some(prop.read_range());
-                    }
-                    ("/virtio_mmio", "interrupts") => {
-                        let index = virtio_address_map.index_of(unit_addresses[1].unwrap_or(0));
-                        virtio[index].1 = Some(prop.read_int());
-                    }
-                    ("/cpus/cpu", "reg") => {
-                        let index = virtio_address_map.index_of(unit_addresses[2].unwrap_or(0));
-                        cpus[index].0 = Some(prop.read_int());
-                    }
-                    ("/cpus/cpu/interrupt-controller", "phandle") => {
-                        let index = virtio_address_map.index_of(unit_addresses[2].unwrap_or(0));
-                        cpus[index].1 = Some(prop.read_int());
-                    }
-                    _ => {},
                 }
-                FdtVisit::Node { .. } => {}
-            }
+                ("/soc/clint", "reg") => meta.clint_address = Some(prop.read_range().0),
+                ("/test", "reg") => meta.test_finisher_address = Some(prop.read_range().0),
+                ("/soc/interrupt-controller", "reg") => plic = Some(prop.read_range().0),
+                ("/soc/interrupt-controller", "interrupts-extended") => {
+                    let cells = prop.cells();
+                    for i in (0..cells).step_by(2) {
+                        let irq = prop.read_cell(i + 1);
+                        if irq == 9 {
+                            plic_context_phandles[i / 2] = Some(prop.read_cell(i));
+                        }
+                    }
+                }
+                ("/virtio_mmio", "reg") => {
+                    let index = virtio_address_map.index_of(unit_addresses[1].unwrap_or(0));
+                    virtio[index].0 = Some(prop.read_range());
+                }
+                ("/virtio_mmio", "interrupts") => {
+                    let index = virtio_address_map.index_of(unit_addresses[1].unwrap_or(0));
+                    virtio[index].1 = Some(prop.read_int());
+                }
+                ("/cpus/cpu", "reg") => {
+                    let index = virtio_address_map.index_of(unit_addresses[2].unwrap_or(0));
+                    cpus[index].0 = Some(prop.read_int());
+                }
+                ("/cpus/cpu/interrupt-controller", "phandle") => {
+                    let index = virtio_address_map.index_of(unit_addresses[2].unwrap_or(0));
+                    cpus[index].1 = Some(prop.read_int());
+                }
+                _ => {}
+            },
+            FdtVisit::Node { .. } => {}
         });
 
         if let (Some(start), Some(end)) = (initrd_start, initrd_end) {
@@ -262,7 +279,10 @@ impl<'a> Fdt<'a> {
 
         for &c in cpus.iter() {
             if let (Some(hartid), Some(phandle)) = c {
-                if let Some(plic_context) = plic_context_phandles.iter().position(|&p| p == Some(phandle as u32)) {
+                if let Some(plic_context) = plic_context_phandles
+                    .iter()
+                    .position(|&p| p == Some(phandle as u32))
+                {
                     meta.harts.push(Hart {
                         hartid,
                         plic_context: plic_context as u64,
@@ -270,14 +290,14 @@ impl<'a> Fdt<'a> {
                 }
             }
         }
-        meta.harts.sort_unstable_by_key(|h|h.hartid);
+        meta.harts.sort_unstable_by_key(|h| h.hartid);
 
         for &v in virtio.iter().rev() {
             if let (Some((base_address, size)), Some(irq)) = v {
                 meta.virtio.push(Device {
                     base_address,
                     size,
-                    irq
+                    irq,
                 })
             }
         }
@@ -304,14 +324,15 @@ impl<'a> Fdt<'a> {
                     BigEndian::write_u64(&mut new_region[8..], guest_memory_size);
                     prop.set(&new_region);
                 }
-                _ => {},
-            }
+                _ => {}
+            },
             FdtVisit::Node { .. } => {}
         });
     }
 
     // Mask out entries from FDT and return some information about the machine.
-    fn walk<F>(&mut self, mut visit: F) where
+    fn walk<F>(&mut self, mut visit: F)
+    where
         F: FnMut(&str, &[Option<u64>], FdtVisit),
     {
         let mut mask_node = 0;
@@ -336,7 +357,7 @@ impl<'a> Fdt<'a> {
                         path.push('/');
                     }
 
-                    let mut full_name = ArrayString::<[_;48]>::new();
+                    let mut full_name = ArrayString::<[_; 48]>::new();
                     while self.nodes[i] != 0 {
                         full_name.push(self.nodes[i] as char);
                         i += 1;
@@ -345,7 +366,11 @@ impl<'a> Fdt<'a> {
 
                     let mut name_parts = full_name.split('@');
                     path.push_str(name_parts.next().unwrap_or(""));
-                    unit_addresses.push(name_parts.next().and_then(|a| u64::from_str_radix(a, 16).ok()));
+                    unit_addresses.push(
+                        name_parts
+                            .next()
+                            .and_then(|a| u64::from_str_radix(a, 16).ok()),
+                    );
 
                     if mask_node > 0 {
                         mask_node += 1;
@@ -375,7 +400,14 @@ impl<'a> Fdt<'a> {
                     let mut prop = Property::from_slice(&mut self.nodes[i..]).0;
                     let prop_name = Self::get_string(self.strings, prop.name_offset());
                     i += 12 + round4(prop.len());
-                    visit(&path, &unit_addresses, FdtVisit::Property{ name: prop_name, prop: &mut prop });
+                    visit(
+                        &path,
+                        &unit_addresses,
+                        FdtVisit::Property {
+                            name: prop_name,
+                            prop: &mut prop,
+                        },
+                    );
                 }
                 FDT_NOP | _ => {
                     i += 4;
@@ -435,7 +467,10 @@ impl<'a> Property<'a> {
     pub fn read_range(&self) -> (u64, u64) {
         assert_eq!(self.len(), 16);
 
-        (BigEndian::read_u64(&self.0[12..20]), BigEndian::read_u64(&self.0[20..28]))
+        (
+            BigEndian::read_u64(&self.0[12..20]),
+            BigEndian::read_u64(&self.0[20..28]),
+        )
     }
     pub fn mask(&mut self) {
         for i in (0..self.0.len()).step_by(4) {
@@ -443,7 +478,9 @@ impl<'a> Property<'a> {
         }
     }
     pub fn value_str(&mut self) -> Option<&str> {
-        if self.len() == 0 { return Some(""); }
+        if self.len() == 0 {
+            return Some("");
+        }
 
         for i in 0..(self.len() - 1) {
             let c = self.0[12 + i];
@@ -461,7 +498,7 @@ impl<'a> Property<'a> {
         self.len() / 4
     }
     pub fn read_cell(&self, i: usize) -> u32 {
-        BigEndian::read_u32(&self.0[(12 + 4*i)..])
+        BigEndian::read_u32(&self.0[(12 + 4 * i)..])
     }
 
     pub fn set(&mut self, value: &[u8]) {
@@ -471,11 +508,14 @@ impl<'a> Property<'a> {
 }
 
 enum FdtVisit<'a> {
-    Node { #[allow(unused)] mask: &'a mut bool },
+    Node {
+        #[allow(unused)]
+        mask: &'a mut bool,
+    },
     Property {
         name: &'a str,
         prop: &'a mut Property<'a>,
-    }
+    },
 }
 
 /// Round up to the next multiple of 4

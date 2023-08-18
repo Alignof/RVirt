@@ -1,4 +1,3 @@
-
 use crate::riscv::bits::STATUS_FS;
 
 /// atomic read from CSR

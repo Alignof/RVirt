@@ -1,4 +1,3 @@
-
 /// The shift between the physical addresses of symbols and the virtual addresses for those same
 /// symbols. This value must match the one used in the linker script (src/linker.ld).
 pub const SYMBOL_PA2VA_OFFSET: u64 = 0xffffffff40000000;

@@ -13,10 +13,22 @@
 use rvirt::*;
 
 // mandatory rust environment setup
-#[lang = "eh_personality"] extern fn eh_personality() {}
-#[panic_handler] fn panic(info: &::core::panic::PanicInfo) -> ! { println!("{}", info); loop {}}
-#[start] fn start(_argc: isize, _argv: *const *const u8) -> isize {0}
-#[no_mangle] fn abort() -> ! { println!("Abort!"); loop {}}
+#[lang = "eh_personality"]
+extern "C" fn eh_personality() {}
+#[panic_handler]
+fn panic(info: &::core::panic::PanicInfo) -> ! {
+    println!("{}", info);
+    loop {}
+}
+#[start]
+fn start(_argc: isize, _argv: *const *const u8) -> isize {
+    0
+}
+#[no_mangle]
+fn abort() -> ! {
+    println!("Abort!");
+    loop {}
+}
 
 static GUEST_DTB: &'static [u8] = include_bytes!("guest.dtb");
 
@@ -30,7 +42,7 @@ static GUEST_KERNEL: [u8; 0] = [];
 
 global_asm!(include_str!("scode.S"));
 
-extern {
+extern "C" {
     fn hart_entry();
     fn panic_trap_handler();
 }
@@ -40,7 +52,7 @@ extern {
 #[inline(never)]
 unsafe fn sstart2(hartid: u64, device_tree_blob: u64, shared_segments_shift: u64) {
     csrci!(sstatus, riscv::bits::STATUS_SIE);
-    if !SHARED_STATICS.hart_lottery.swap(false,  Ordering::SeqCst) {
+    if !SHARED_STATICS.hart_lottery.swap(false, Ordering::SeqCst) {
         csrw!(stvec, hart_entry as u64);
         csrw!(sscratch, hartid);
         csrw!(sie, 0x002);
@@ -61,7 +73,10 @@ unsafe fn sstart2(hartid: u64, device_tree_blob: u64, shared_segments_shift: u64
 
     // Initialize UART
     if let Some(ty) = machine.uart_type {
-        SHARED_STATICS.uart_writer.lock().init(machine.uart_address, ty);
+        SHARED_STATICS
+            .uart_writer
+            .lock()
+            .init(machine.uart_address, ty);
     }
 
     // Do some sanity checks now that the UART is initialized and we have a better chance of
@@ -74,11 +89,14 @@ unsafe fn sstart2(hartid: u64, device_tree_blob: u64, shared_segments_shift: u64
     }
 
     // Do not allow the __SHARED_STATICS_IMPL symbol to be optimized out.
-    assert_eq!(&__SHARED_STATICS_IMPL as *const _ as u64, constants::SUPERVISOR_SHARED_STATIC_ADDRESS);
+    assert_eq!(
+        &__SHARED_STATICS_IMPL as *const _ as u64,
+        constants::SUPERVISOR_SHARED_STATIC_ADDRESS
+    );
 
     // Program PLIC priorities
     for i in 1..127 {
-        *(pa2va(machine.plic_address + i*4) as *mut u32) = 1;
+        *(pa2va(machine.plic_address + i * 4) as *mut u32) = 1;
     }
 
     let mut guest_harts = machine.harts.clone();
@@ -97,7 +115,7 @@ unsafe fn sstart2(hartid: u64, device_tree_blob: u64, shared_segments_shift: u64
 
         let mut irq_mask = 0;
         for j in 0..4 {
-            let index = ((guestid-1) * 4 + j) as usize;
+            let index = ((guestid - 1) * 4 + j) as usize;
             if index < machine.virtio.len() {
                 let irq = machine.virtio[index].irq;
                 assert!(irq < 32);
@@ -114,26 +132,36 @@ unsafe fn sstart2(hartid: u64, device_tree_blob: u64, shared_segments_shift: u64
             *(pa2va(hart_base_pa + i * 8) as *mut u64) += shared_segments_shift >> 2;
         }
 
-        core::ptr::copy(pa2va(device_tree_blob) as *const u8,
-                        pa2va(hart_base_pa + 4096*2) as *mut u8,
-                        fdt.total_size() as usize);
+        core::ptr::copy(
+            pa2va(device_tree_blob) as *const u8,
+            pa2va(hart_base_pa + 4096 * 2) as *mut u8,
+            fdt.total_size() as usize,
+        );
         if machine.initrd_start == machine.initrd_end {
-            core::ptr::copy(&GUEST_KERNEL as *const _ as *const u8,
-                            pa2va(hart_base_pa + pmap::HEAP_OFFSET) as *mut u8,
-                            GUEST_KERNEL.len());
+            core::ptr::copy(
+                &GUEST_KERNEL as *const _ as *const u8,
+                pa2va(hart_base_pa + pmap::HEAP_OFFSET) as *mut u8,
+                GUEST_KERNEL.len(),
+            );
         } else {
-            core::ptr::copy(pa2va(machine.initrd_start) as *const u8,
-                            pa2va(hart_base_pa + pmap::HEAP_OFFSET) as *mut u8,
-                            (machine.initrd_end - machine.initrd_start) as usize);
+            core::ptr::copy(
+                pa2va(machine.initrd_start) as *const u8,
+                pa2va(hart_base_pa + pmap::HEAP_OFFSET) as *mut u8,
+                (machine.initrd_end - machine.initrd_start) as usize,
+            );
         }
 
         let reason = IpiReason::TriggerHartEntry {
             a0: hart.hartid,
-            a1: hart_base_pa + 4096*2,
+            a1: hart_base_pa + 4096 * 2,
             a2: shared_segments_shift,
             a3: hart_base_pa,
-            a4: if !single_guest { guestid as u64 } else { u64::max_value() },
-            sp: hart_base_pa + (4<<20) + pmap::DIRECT_MAP_OFFSET,
+            a4: if !single_guest {
+                guestid as u64
+            } else {
+                u64::max_value()
+            },
+            sp: hart_base_pa + (4 << 20) + pmap::DIRECT_MAP_OFFSET,
             satp: 8 << 60 | (hart_base_pa >> 12),
         };
 
@@ -152,8 +180,23 @@ unsafe fn sstart2(hartid: u64, device_tree_blob: u64, shared_segments_shift: u64
 
 #[no_mangle]
 unsafe fn hart_entry2(hartid: u64) {
-    let reason = { SHARED_STATICS.ipi_reason_array.get_unchecked(hartid as usize).lock().take() };
-    if let Some(IpiReason::TriggerHartEntry { a0, a1, a2, a3, a4, sp, satp }) = reason {
+    let reason = {
+        SHARED_STATICS
+            .ipi_reason_array
+            .get_unchecked(hartid as usize)
+            .lock()
+            .take()
+    };
+    if let Some(IpiReason::TriggerHartEntry {
+        a0,
+        a1,
+        a2,
+        a3,
+        a4,
+        sp,
+        satp,
+    }) = reason
+    {
         csrw!(sie, 0x222);
         csrw!(satp, satp);
         hart_entry3(a0, a1, a2, a3, a4, sp);
@@ -165,15 +208,26 @@ unsafe fn hart_entry2(hartid: u64) {
 #[naked]
 #[no_mangle]
 #[inline(never)]
-unsafe fn hart_entry3(_hartid: u64, _device_tree_blob: u64, _shared_segments_shift: u64,
-                      _hart_base_pa: u64, _guestid: u64, _stack_pointer: u64) {
+unsafe fn hart_entry3(
+    _hartid: u64,
+    _device_tree_blob: u64,
+    _shared_segments_shift: u64,
+    _hart_base_pa: u64,
+    _guestid: u64,
+    _stack_pointer: u64,
+) {
     asm!("mv sp, a5
           j hart_entry4" :::: "volatile");
 }
 
 #[no_mangle]
-unsafe fn hart_entry4(hartid: u64, device_tree_blob: u64, shared_segments_shift: u64,
-                      hart_base_pa: u64, guestid: u64) {
+unsafe fn hart_entry4(
+    hartid: u64,
+    device_tree_blob: u64,
+    shared_segments_shift: u64,
+    hart_base_pa: u64,
+    guestid: u64,
+) {
     csrw!(stvec, trap::strap_entry as *const () as u64);
     csrw!(sie, 0x222);
     csrs!(sstatus, riscv::bits::STATUS_SUM);
@@ -197,25 +251,33 @@ unsafe fn hart_entry4(hartid: u64, device_tree_blob: u64, shared_segments_shift:
         pmap::init(hart_base_pa, shared_segments_shift, &machine);
 
     // Load guest binary
-    let (entry, max_addr) = sum::access_user_memory(||{
-        elf::load_elf(pa2va(hart_base_pa + pmap::HEAP_OFFSET) as *const u8,
-                      machine.physical_memory_offset as *mut u8)
+    let (entry, max_addr) = sum::access_user_memory(|| {
+        elf::load_elf(
+            pa2va(hart_base_pa + pmap::HEAP_OFFSET) as *const u8,
+            machine.physical_memory_offset as *mut u8,
+        )
     });
     let guest_dtb = (max_addr | 0x1fffff) + 1;
     csrw!(sepc, entry);
 
     // Load guest FDT.
-    let guest_machine = sum::access_user_memory(||{
-        core::ptr::copy(GUEST_DTB.as_ptr(),
-                        guest_dtb as *mut u8,
-                        GUEST_DTB.len());
+    let guest_machine = sum::access_user_memory(|| {
+        core::ptr::copy(GUEST_DTB.as_ptr(), guest_dtb as *mut u8, GUEST_DTB.len());
         let mut guest_fdt = Fdt::new(guest_dtb);
         guest_fdt.initialize_guest(guest_memory.len(), &machine.bootargs);
         guest_fdt.parse()
     });
 
     // Initialize context
-    context::initialize(&machine, &guest_machine, shadow_page_tables, guest_memory, guest_shift, hartid, guestid);
+    context::initialize(
+        &machine,
+        &guest_machine,
+        shadow_page_tables,
+        guest_memory,
+        guest_shift,
+        hartid,
+        guestid,
+    );
 
     // Jump into the guest kernel.
     asm!("mv a1, $0 // dtb = guest_dtb

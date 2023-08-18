@@ -1,9 +1,9 @@
-use byteorder::{NativeEndian, ByteOrder};
-use riscv_decode::Instruction;
 use crate::context::Context;
-use crate::memory_region::MemoryRegion;
 use crate::drivers::macb::MacbDriver;
-use crate::{pmap, riscv, drivers};
+use crate::memory_region::MemoryRegion;
+use crate::{drivers, pmap, riscv};
+use byteorder::{ByteOrder, NativeEndian};
+use riscv_decode::Instruction;
 
 pub const MAX_QUEUES: usize = 4;
 pub const MAX_DEVICES: usize = 4;
@@ -32,8 +32,16 @@ impl Device {
     pub unsafe fn new(host_base_address: u64) -> Self {
         Device::Passthrough {
             queue_sel: 0,
-            queues: [Queue {guest_pa: 0, host_pa: 0, size: 0}; MAX_QUEUES],
-            device_registers: MemoryRegion::with_base_address(pmap::pa2va(host_base_address), 0, 0x1000),
+            queues: [Queue {
+                guest_pa: 0,
+                host_pa: 0,
+                size: 0,
+            }; MAX_QUEUES],
+            device_registers: MemoryRegion::with_base_address(
+                pmap::pa2va(host_base_address),
+                0,
+                0x1000,
+            ),
         }
     }
 }
@@ -48,7 +56,11 @@ pub fn handle_device_access(state: &mut Context, guest_pa: u64, instruction: u32
     let offset = guest_pa & 0xfff;
 
     match state.virtio.devices[device] {
-        Device::Passthrough { ref mut queue_sel, ref mut queues, ref mut device_registers } => {
+        Device::Passthrough {
+            ref mut queue_sel,
+            ref mut queues,
+            ref mut device_registers,
+        } => {
             let mut current = device_registers[offset & !0x3];
             if offset == 0x10 {
                 current = current & !(1 << 28); // No VIRTIO_F_INDIRECT_DESC
@@ -57,26 +69,27 @@ pub fn handle_device_access(state: &mut Context, guest_pa: u64, instruction: u32
             }
 
             match riscv_decode::decode(instruction).ok() {
-                Some(Instruction::Lw(i)) => {
-                    state.saved_registers.set(i.rd(), current as u64)
-                }
+                Some(Instruction::Lw(i)) => state.saved_registers.set(i.rd(), current as u64),
                 Some(Instruction::Lb(i)) => {
                     assert!(offset >= 0x100);
-                    let value = (current >> (8*(offset & 0x3))) & 0xff;
+                    let value = (current >> (8 * (offset & 0x3))) & 0xff;
                     state.saved_registers.set(i.rd(), value as u64)
                 }
                 Some(Instruction::Sw(i)) => {
                     let mut value = state.saved_registers.get(i.rs2()) as u32;
-                    if offset == 0x30 { // QueueSel
+                    if offset == 0x30 {
+                        // QueueSel
                         assert!(value < 4);
                         *queue_sel = value;
-                    } else if offset == 0x38 { // QueueNum
+                    } else if offset == 0x38 {
+                        // QueueNum
                         let queue = &mut queues[*queue_sel as usize];
                         queue.size = value as u64;
 
                         // Linux never changes queue sizes, so this isn't supported.
                         assert_eq!(queue.host_pa, 0);
-                    } else if offset == 0x40 { // QueuePFN
+                    } else if offset == 0x40 {
+                        // QueuePFN
                         let queue = &mut queues[*queue_sel as usize];
 
                         // Linux never releases queues, so this is currently unimplemented.
@@ -102,37 +115,66 @@ pub fn handle_device_access(state: &mut Context, guest_pa: u64, instruction: u32
                     device_registers[offset] = value;
                 }
                 Some(instr) => {
-                    println!("VIRTIO: Instruction {:?} used to target addr {:#x} from pc {:#x}", instr, guest_pa, csrr!(sepc));
+                    println!(
+                        "VIRTIO: Instruction {:?} used to target addr {:#x} from pc {:#x}",
+                        instr,
+                        guest_pa,
+                        csrr!(sepc)
+                    );
                     loop {}
                 }
                 None => {
-                    println!("Unrecognized instruction targetting VIRTIO {:#x} at {:#x}!", instruction, csrr!(sepc));
+                    println!(
+                        "Unrecognized instruction targetting VIRTIO {:#x} at {:#x}!",
+                        instruction,
+                        csrr!(sepc)
+                    );
                     loop {}
                 }
             }
         }
-        Device::Unmapped => {
-            match riscv_decode::decode(instruction).ok() {
-                Some(Instruction::Lw(i)) => state.saved_registers.set(i.rd(), 0),
-                Some(Instruction::Lb(i)) => state.saved_registers.set(i.rd(), 0),
-                Some(Instruction::Sw(_)) => {}
-                Some(instr) => {
-                    println!("VIRTIO: Instruction {:?} used to target addr {:#x} from pc {:#x}", instr, guest_pa, csrr!(sepc));
-                    loop {}
-                }
-                None => {
-                    println!("Unrecognized instruction targetting VIRTIO {:#x} at {:#x}!", instruction, csrr!(sepc));
-                    loop {}
-                }
+        Device::Unmapped => match riscv_decode::decode(instruction).ok() {
+            Some(Instruction::Lw(i)) => state.saved_registers.set(i.rd(), 0),
+            Some(Instruction::Lb(i)) => state.saved_registers.set(i.rd(), 0),
+            Some(Instruction::Sw(_)) => {}
+            Some(instr) => {
+                println!(
+                    "VIRTIO: Instruction {:?} used to target addr {:#x} from pc {:#x}",
+                    instr,
+                    guest_pa,
+                    csrr!(sepc)
+                );
+                loop {}
             }
-        }
+            None => {
+                println!(
+                    "Unrecognized instruction targetting VIRTIO {:#x} at {:#x}!",
+                    instruction,
+                    csrr!(sepc)
+                );
+                loop {}
+            }
+        },
         Device::Macb(ref mut macb) => match riscv_decode::decode(instruction).ok() {
-            Some(Instruction::Lb(i)) => state.saved_registers.set(i.rd(), macb.read_u8(&mut state.guest_memory, offset) as u64),
-            Some(Instruction::Lw(i)) => state.saved_registers.set(i.rd(), macb.read_u32(&mut state.guest_memory, offset) as u64),
-            Some(Instruction::Sb(i)) => macb.write_u8(&mut state.guest_memory, offset, state.saved_registers.get(i.rs2()) as u8),
-            Some(Instruction::Sw(i)) => macb.write_u32(&mut state.guest_memory, offset, state.saved_registers.get(i.rs2()) as u32),
+            Some(Instruction::Lb(i)) => state
+                .saved_registers
+                .set(i.rd(), macb.read_u8(&mut state.guest_memory, offset) as u64),
+            Some(Instruction::Lw(i)) => state.saved_registers.set(
+                i.rd(),
+                macb.read_u32(&mut state.guest_memory, offset) as u64,
+            ),
+            Some(Instruction::Sb(i)) => macb.write_u8(
+                &mut state.guest_memory,
+                offset,
+                state.saved_registers.get(i.rs2()) as u8,
+            ),
+            Some(Instruction::Sw(i)) => macb.write_u32(
+                &mut state.guest_memory,
+                offset,
+                state.saved_registers.get(i.rs2()) as u32,
+            ),
             Some(_) | None => {}
-        }
+        },
     }
     riscv::set_sepc(csrr!(sepc) + riscv_decode::instruction_length(instruction as u16) as u64);
     true
@@ -147,12 +189,20 @@ pub fn is_queue_access(state: &mut Context, guest_page: u64) -> bool {
     false
 }
 
-pub fn handle_queue_access(state: &mut Context, guest_pa: u64, host_pa: u64, instruction: u32) -> bool {
+pub fn handle_queue_access(
+    state: &mut Context,
+    guest_pa: u64,
+    host_pa: u64,
+    instruction: u32,
+) -> bool {
     let mut hit_queue = false;
     for d in &state.virtio.devices {
         if let Device::Passthrough { ref queues, .. } = d {
             for q in queues {
-                if guest_pa >= q.guest_pa && guest_pa < q.guest_pa + q.size * 16 && guest_pa & 0xf < 8 {
+                if guest_pa >= q.guest_pa
+                    && guest_pa < q.guest_pa + q.size * 16
+                    && guest_pa & 0xf < 8
+                {
                     hit_queue = true;
                 }
             }
@@ -161,15 +211,22 @@ pub fn handle_queue_access(state: &mut Context, guest_pa: u64, host_pa: u64, ins
 
     let decoded = riscv_decode::decode(instruction);
     if let Err(err) = decoded {
-        println!("Unrecognized instruction targetting VQUEUE {:#x} at {:#x} (error: {:?})!",
-                 instruction, csrr!(sepc), err);
+        println!(
+            "Unrecognized instruction targetting VQUEUE {:#x} at {:#x} (error: {:?})!",
+            instruction,
+            csrr!(sepc),
+            err
+        );
         loop {}
     }
 
     if hit_queue {
         match decoded.unwrap() {
             Instruction::Ld(i) => {
-                state.saved_registers.set(i.rd(), state.guest_memory[guest_pa].wrapping_sub(state.guest_shift));
+                state.saved_registers.set(
+                    i.rd(),
+                    state.guest_memory[guest_pa].wrapping_sub(state.guest_shift),
+                );
             }
             Instruction::Sd(i) => {
                 let value = state.saved_registers.get(i.rs2());
@@ -182,8 +239,12 @@ pub fn handle_queue_access(state: &mut Context, guest_pa: u64, host_pa: u64, ins
                 }
             }
             instr => {
-                println!("VQUEUE: Instruction {:?} used to target addr {:#x} from pc {:#x}",
-                         instr, host_pa, csrr!(sepc));
+                println!(
+                    "VQUEUE: Instruction {:?} used to target addr {:#x} from pc {:#x}",
+                    instr,
+                    host_pa,
+                    csrr!(sepc)
+                );
                 loop {}
             }
         }
@@ -192,20 +253,40 @@ pub fn handle_queue_access(state: &mut Context, guest_pa: u64, host_pa: u64, ins
         let offset = (guest_pa % 8) as usize;
         let mut current = state.guest_memory[index].to_ne_bytes();
         match decoded.as_ref().unwrap() {
-            Instruction::Ld(i) => state.saved_registers.set(i.rd(), u64::from_ne_bytes(current)),
-            Instruction::Lwu(i) => state.saved_registers.set(i.rd(), NativeEndian::read_u32(&current[offset..]) as u64),
-            Instruction::Lhu(i) => state.saved_registers.set(i.rd(), NativeEndian::read_u16(&current[offset..]) as u64),
+            Instruction::Ld(i) => state
+                .saved_registers
+                .set(i.rd(), u64::from_ne_bytes(current)),
+            Instruction::Lwu(i) => state
+                .saved_registers
+                .set(i.rd(), NativeEndian::read_u32(&current[offset..]) as u64),
+            Instruction::Lhu(i) => state
+                .saved_registers
+                .set(i.rd(), NativeEndian::read_u16(&current[offset..]) as u64),
             Instruction::Lbu(i) => state.saved_registers.set(i.rd(), current[offset] as u64),
-            Instruction::Lw(i) => state.saved_registers.set(i.rd(), NativeEndian::read_i32(&current[offset..]) as i64 as u64),
-            Instruction::Lh(i) => state.saved_registers.set(i.rd(), NativeEndian::read_i16(&current[offset..]) as i64 as u64),
-            Instruction::Lb(i) => state.saved_registers.set(i.rd(), current[offset] as i8 as i64 as u64),
+            Instruction::Lw(i) => state.saved_registers.set(
+                i.rd(),
+                NativeEndian::read_i32(&current[offset..]) as i64 as u64,
+            ),
+            Instruction::Lh(i) => state.saved_registers.set(
+                i.rd(),
+                NativeEndian::read_i16(&current[offset..]) as i64 as u64,
+            ),
+            Instruction::Lb(i) => state
+                .saved_registers
+                .set(i.rd(), current[offset] as i8 as i64 as u64),
             Instruction::Sd(i) => state.guest_memory[index] = state.saved_registers.get(i.rs2()),
             Instruction::Sw(i) => {
-                NativeEndian::write_u32(&mut current[offset..], state.saved_registers.get(i.rs2()) as u32);
+                NativeEndian::write_u32(
+                    &mut current[offset..],
+                    state.saved_registers.get(i.rs2()) as u32,
+                );
                 state.guest_memory[index] = u64::from_ne_bytes(current);
             }
             Instruction::Sh(i) => {
-                NativeEndian::write_u16(&mut current[offset..], state.saved_registers.get(i.rs2()) as u16);
+                NativeEndian::write_u16(
+                    &mut current[offset..],
+                    state.saved_registers.get(i.rs2()) as u16,
+                );
                 state.guest_memory[index] = u64::from_ne_bytes(current);
             }
             Instruction::Sb(i) => {
@@ -213,8 +294,12 @@ pub fn handle_queue_access(state: &mut Context, guest_pa: u64, host_pa: u64, ins
                 state.guest_memory[index] = u64::from_ne_bytes(current);
             }
             instr => {
-                println!("VQUEUE: Instruction {:?} used to target addr {:#x} from pc {:#x}",
-                         instr, host_pa, csrr!(sepc));
+                println!(
+                    "VQUEUE: Instruction {:?} used to target addr {:#x} from pc {:#x}",
+                    instr,
+                    host_pa,
+                    csrr!(sepc)
+                );
                 loop {}
             }
         }
