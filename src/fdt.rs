@@ -239,8 +239,11 @@ impl<'a> Fdt<'a> {
                 }
                 ("/soc/clint", "reg") => meta.clint_address = Some(prop.read_range().0),
                 ("/test", "reg") => meta.test_finisher_address = Some(prop.read_range().0),
-                ("/soc/interrupt-controller", "reg") => plic = Some(prop.read_range().0),
-                ("/soc/interrupt-controller", "interrupts-extended") => {
+                ("/soc/plic", "reg") | ("/soc/interrupt-controller", "reg") => {
+                    plic = Some(prop.read_range().0)
+                }
+                ("/soc/plic", "interrupts-extended")
+                | ("/soc/interrupt-controller", "interrupts-extended") => {
                     let cells = prop.cells();
                     for i in (0..cells).step_by(2) {
                         let irq = prop.read_cell(i + 1);
